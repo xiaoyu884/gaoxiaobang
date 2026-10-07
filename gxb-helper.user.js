@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         高校邦助手 xmut (进度+讨论+DeepSeek答题)
 // @namespace    https://github.com/Wu557666/gaoxiaobang
-// @version      1.3.7
-// @description  视频/页面进度 + 讨论回复 + DeepSeek 测验答题；课程状态隔离、失败可重试，默认人工提交测验
+// @version      1.4.0
+// @description  视频/页面进度 + 讨论回复 + DeepSeek 测验答题；默认暂停，各模块需启用，支持开始和暂停
 // @author       combined from Wu557666/gaoxiaobang + Tyrone2333/Gaoxiaobang-Script
 // @icon         https://favicon.im/xmut.gaoxiaobang.com?size=128
 // @match        https://xmut.class.gaoxiaobang.com/*
@@ -31,6 +31,21 @@
     const DEEPSEEK_KEY = 'gb_deepseek_key';
     const DEEPSEEK_MODEL = 'gb_deepseek_model';
     const REQUEST_TIMEOUT = 30000;
+    const EXECUTION_SESSION_KEY = 'gb_execution_session';
+    const MODULE_KEYS = { progress: 'gb_enable_progress', discussion: 'gb_enable_discussion', ai: 'gb_enable_ai' };
+    const moduleEnabled = module => GM_getValue(MODULE_KEYS[module], 'off') === 'on';
+    const selectedModules = () => Object.keys(MODULE_KEYS).filter(moduleEnabled);
+    const sameModules = session => Object.keys(MODULE_KEYS)
+        .every(module => session.modules.includes(module) === moduleEnabled(module));
+    const pendingRequests = new Set();
+    let executionSession = null;
+    try {
+        const saved = JSON.parse(sessionStorage.getItem(EXECUTION_SESSION_KEY) || 'null');
+        if (saved && typeof saved.host === 'string' && typeof saved.course === 'string'
+            && (saved.user === null || typeof saved.user === 'string') && Array.isArray(saved.modules)
+            && saved.modules.length > 0 && new Set(saved.modules).size === saved.modules.length
+            && saved.modules.every(module => Object.hasOwn(MODULE_KEYS, module))) executionSession = saved;
+    } catch (_) { /* A missing or malformed session starts paused. */ }
 
     const routeClassId = () => location.pathname.match(/\/class\/([^/]+)/)?.[1] || null;
     const classId = () => routeClassId() || unsafeWindow.classinfo?.classId;
@@ -77,12 +92,109 @@
     let staleQuizControls = new Map();
     let lastRouteChapter = null;
     let navigationTimeout = null;
+    const executionRequested = () => executionSession?.host === location.host
+        && executionSession.course === String(classId())
+        && (userId() === null || executionSession.user === userId())
+        && sameModules(executionSession);
+    const executionAllowed = () => executionRequested() && executionSession.user === userId();
     const assertScope = () => {
+        if (!executionAllowed()) throw new Error('脚本已暂停，或当前账号、课程未授权开始');
         if ((scopeAtStart && (scopeAtStart !== scopedKey(STATE_KEY) || chapterAtStart !== currentChapterId()))
             || (epochAtStart !== null && epochAtStart !== routeEpoch)) {
             throw new Error('账号、课程或任务已改变，本轮停止');
         }
     };
+    const assertModule = module => {
+        assertScope();
+        if (!moduleEnabled(module)) throw new Error('当前模块已停用，请重新选择模块后开始');
+    };
+
+    // Reject promptly even when an underlying API does not support abort().
+    // Late callbacks settle an already rejected promise and cannot resume a run.
+    function cancellableRequest(start) {
+        return new Promise((resolve, reject) => {
+            let handle, settled = false;
+            const finish = (callback, value) => {
+                if (settled) return;
+                settled = true;
+                pendingRequests.delete(cancel);
+                callback(value);
+            };
+            const cancel = () => {
+                finish(reject, new Error('脚本已暂停'));
+                try { handle?.abort?.(); } catch (_) { /* Already finished or not abortable. */ }
+            };
+            pendingRequests.add(cancel);
+            try {
+                handle = start(value => finish(resolve, value), error => finish(reject, error));
+            } catch (error) { finish(reject, error); }
+        });
+    }
+
+    function refreshControls() {
+        const panel = document.getElementById('gxb-helper-controls');
+        if (!panel) return;
+        const running = executionAllowed();
+        panel.querySelector('#gxb-status').textContent = running ? '已启动：仅运行已启用模块'
+            : executionRequested() ? '等待账号信息' : '已暂停';
+        panel.querySelector('#gxb-start').disabled = running && (mainRunning || navigating);
+        panel.querySelector('#gxb-pause').disabled = !executionSession;
+        panel.querySelectorAll('[data-gxb-module]').forEach(input => { input.checked = moduleEnabled(input.dataset.gxbModule); });
+    }
+
+    function pauseExecution() {
+        executionSession = null;
+        try { sessionStorage.removeItem(EXECUTION_SESSION_KEY); } catch (_) { /* Local pause still applies. */ }
+        routeEpoch++;
+        routeRestartRequested = false;
+        pendingQuizContinuation = null;
+        navigating = false;
+        clearTimeout(navigationTimeout);
+        quizObserver?.disconnect(); quizObserver = null;
+        clearTimeout(quizObserverTimeout);
+        for (const cancel of [...pendingRequests]) cancel();
+        refreshControls();
+        console.log('⏸ 已暂停；已发送的请求无法撤回，不再执行后续操作');
+    }
+
+    function startExecution() {
+        if (executionAllowed() && (mainRunning || navigating)) return;
+        if (!selectedModules().length) { alert('请先启用至少一个模块，再点击开始。'); return; }
+        if (!classId() || (!userId() && (unsafeWindow.gxb?.user || executionSession?.user != null))) { alert('请等待课程及账号信息加载后再开始。'); return; }
+        if (executionSession || mainRunning || navigating) pauseExecution();
+        executionSession = { host: location.host, course: String(classId()), user: userId(), modules: selectedModules() };
+        try { sessionStorage.setItem(EXECUTION_SESSION_KEY, JSON.stringify(executionSession)); }
+        catch (_) { console.warn('⚠️ 无法保存本标签页的运行状态；页面切换后请重新开始'); }
+        refreshControls();
+        if (mainRunning) routeRestartRequested = true;
+        else { navigating = false; void main(); }
+    }
+
+    function changeModule(module, value) {
+        pauseExecution();
+        GM_setValue(MODULE_KEYS[module], value ? 'on' : 'off');
+        refreshControls();
+    }
+
+    function mountControls() {
+        const panel = document.createElement('aside');
+        panel.id = 'gxb-helper-controls';
+        panel.setAttribute('aria-label', '高校邦助手运行控制');
+        panel.style.cssText = 'position:fixed;right:16px;bottom:16px;z-index:2147483647;background:#fff;color:#222;border:1px solid #bbb;border-radius:8px;padding:12px;box-shadow:0 2px 12px #0002;font:14px/1.6 sans-serif;width:240px';
+        panel.innerHTML = '<strong>高校邦助手</strong><div id="gxb-status" role="status" aria-live="polite"></div>'
+            + '<label style="display:block"><input type="checkbox" data-gxb-module="progress"> 视频 / 阅读进度</label>'
+            + '<label style="display:block"><input type="checkbox" data-gxb-module="discussion"> 发布讨论回复</label>'
+            + '<label style="display:block"><input type="checkbox" data-gxb-module="ai"> AI 测验答案</label>'
+            + '<button id="gxb-start" type="button">开始 / 重试</button> <button id="gxb-pause" type="button">暂停</button>'
+            + '<div style="font-size:12px;color:#555">更改模块后，请重新开始。</div>';
+        panel.querySelector('#gxb-start').addEventListener('click', startExecution);
+        panel.querySelector('#gxb-pause').addEventListener('click', pauseExecution);
+        panel.querySelectorAll('[data-gxb-module]').forEach(input => {
+            input.addEventListener('change', () => changeModule(input.dataset.gxbModule, input.checked));
+        });
+        document.body.appendChild(panel);
+        refreshControls();
+    }
 
     const settings = {
         get apiKey() { return GM_getValue(DEEPSEEK_KEY, ''); },
@@ -103,11 +215,13 @@
         if (model !== null && model.trim()) settings.model = model.trim();
     });
     GM_registerMenuCommand('🤖 切换答题模式: ' + (settings.confirmBeforeSubmit ? '提交前确认(当前)' : '自动提交(当前)'), () => {
+        pauseExecution();
         settings.confirmBeforeSubmit = !settings.confirmBeforeSubmit;
         alert('答题模式已切换为: ' + (settings.confirmBeforeSubmit ? '提交前人工确认' : '全自动提交'));
         location.reload();
     });
-    GM_registerMenuCommand('▶️ 运行 / 重试当前页面', () => { void main(); });
+    GM_registerMenuCommand('▶️ 运行 / 重试当前页面', startExecution);
+    GM_registerMenuCommand('⏸ 暂停当前标签页', pauseExecution);
     GM_registerMenuCommand('🔁 重置当前课程脚本状态', () => {
         if (mainRunning) { alert('任务正在运行，请等待结束后再重置'); return; }
         if (!classId()) { alert('请在课程页面重置状态'); return; }
@@ -117,13 +231,14 @@
 
     // ========== DeepSeek 答题 ==========
     async function askDeepSeek(question) {
+        assertModule('ai');
         const letterNote = question.multi
             ? '可能有多个正确选项，请返回所有正确选项的字母连在一起（如 ABD）'
             : '请只返回一个正确选项的字母';
         const prompt = `你是答题助手。${letterNote}，不要任何其他文字、解释或标点。\n\n题目：${question.title}\n\n选项：\n${question.options.map((o, i) => `${String.fromCharCode(65 + i)}. ${o}`).join('\n')}`;
 
-        return new Promise((resolve, reject) => {
-            GM_xmlhttpRequest({
+        return cancellableRequest((resolve, reject) => {
+            return GM_xmlhttpRequest({
                 method: 'POST',
                 url: 'https://api.deepseek.com/chat/completions',
                 headers: {
@@ -227,15 +342,22 @@
         const wanted = new Set(letters.map(letter => String(question.answerIds[letter.charCodeAt(0) - 65])));
         // Clear stale choices first, then select only the requested answers.
         for (const id of question.answerIds) {
-            assertScope();
+            assertModule('ai');
             if (!wanted.has(String(id))) {
-                for (const icon of iconsFor(id)) if (selected(icon)) { icon.click(); await wait(0); }
+                for (const icon of iconsFor(id)) {
+                    assertModule('ai');
+                    if (selected(icon)) { icon.click(); await wait(0); }
+                }
             }
         }
         for (const id of wanted) {
-            assertScope();
-            for (const icon of iconsFor(id)) if (!selected(icon)) { icon.click(); await wait(0); }
+            assertModule('ai');
+            for (const icon of iconsFor(id)) {
+                assertModule('ai');
+                if (!selected(icon)) { icon.click(); await wait(0); }
+            }
         }
+        assertModule('ai');
         if (question.answerIds.some(id => iconsFor(id).some(icon => selected(icon) !== wanted.has(String(id))))) {
             throw new Error('页面未确认选项选中状态，请手动检查');
         }
@@ -243,7 +365,7 @@
 
     async function waitForQuizQuestions() {
         for (let attempt = 0; attempt < 60; attempt++) {
-            assertScope();
+            assertModule('ai');
             const questions = extractQuestions();
             if (questions.length && questions.every(question => question.answerIds.length > 0
                 && question.answerIds.every(id => iconsFor(id).some(visible)))) return questions;
@@ -254,6 +376,8 @@
     }
 
     async function runQuiz() {
+        if (!moduleEnabled('ai')) { console.log('⏭ AI 答题未启用，请自行完成当前测验'); return; }
+        assertScope();
         if (quizRunning) return;
         quizRunning = true;
         try {
@@ -262,15 +386,16 @@
                 return;
             }
             const questions = await waitForQuizQuestions();
+            assertModule('ai');
             if (!questions.length) return;
             const confirmBeforeSubmit = settings.confirmBeforeSubmit;
             let answered = 0;
             for (const question of questions) {
-                assertScope();
+                assertModule('ai');
                 try {
                     validateQuestion(question);
                     const letters = await askDeepSeek(question);
-                    assertScope();
+                    assertModule('ai');
                     await selectAnswers(question, letters);
                     answered++;
                     console.log(`✅ 第${question.index + 1}题 → ${letters.join(', ')}`);
@@ -279,7 +404,7 @@
                 }
                 await wait(1200);
             }
-            assertScope();
+            assertModule('ai');
             const submitButton = document.getElementById('quizSubmit');
             if (submitButton) {
                 submitButton.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -296,7 +421,7 @@
             if (!submitButton || submitButton.disabled) throw new Error('提交按钮不可用，未自动提交');
             submitButton.click();
             await wait(800);
-            assertScope();
+            assertModule('ai');
             const confirmation = document.querySelector('.btn.btn-default.gxb-sure');
             if (confirmation && !confirmation.disabled) confirmation.click();
             console.log('🚀 已点击测验提交，请在页面确认提交结果');
@@ -326,13 +451,13 @@
     }
 
     function ajaxRequest(options) {
-        assertScope();
+        assertModule('progress');
         const jquery = unsafeWindow.$ || window.$;
         if (typeof jquery?.ajax === 'function') {
-            return new Promise((resolve, reject) => jquery.ajax({
+            return cancellableRequest((resolve, reject) => jquery.ajax({
                 ...options, timeout: REQUEST_TIMEOUT,
                 success: result => {
-                    try { assertScope(); resolve(result); } catch (error) { reject(error); }
+                    try { assertModule('progress'); resolve(result); } catch (error) { reject(error); }
                 },
                 error: (xhr, status) => reject(new Error(`课程请求失败 (${xhr?.status || status || '网络错误'})`)),
             }));
@@ -350,27 +475,61 @@
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT);
         try {
-            const response = await fetch(url, { ...init, signal: controller.signal });
-            assertScope();
-            if (!response.ok) throw new Error(`课程请求 HTTP ${response.status}`);
-            // Read the response body before releasing the timeout.
-            const text = await response.text();
-            assertScope();
-            return { text: async () => text, json: async () => JSON.parse(text) };
+            return await cancellableRequest((resolve, reject) => {
+                (async () => {
+                    const response = await fetch(url, { ...init, signal: controller.signal });
+                    assertScope();
+                    if (!response.ok) throw new Error(`课程请求 HTTP ${response.status}`);
+                    // Read the response body before releasing the timeout.
+                    const text = await response.text();
+                    assertScope();
+                    return { text: async () => text, json: async () => JSON.parse(text) };
+                })().then(resolve, reject);
+                return controller;
+            });
         } finally { clearTimeout(timeout); }
     }
 
+    const progressTasks = () => extractAllChapters(dataSource())
+        .filter(chapter => ['Video', 'Page', 'UEditor', 'Html', 'Courseware'].includes(chapter.contentType));
+    const progressComplete = () => {
+        const ids = new Set(readIds(PROCESSED_CHAPTERS_KEY));
+        return progressTasks().every(chapter => ids.has(`${chapter.contentType}:${chapter.chapterId}`));
+    };
+    const discussionComplete = () => {
+        const ids = new Set(readIds(PROCESSED_TOPICS_KEY));
+        return extractAllChapters(dataSource()).filter(chapter => chapter.contentType === 'Topic')
+            .every(chapter => ids.has(String(chapter.chapterId)));
+    };
+    function syncPhaseState() {
+        assertScope();
+        setState(!progressComplete() ? 'progress' : !discussionComplete() ? 'discuss' : 'completed');
+    }
+    async function runCoursePhases() {
+        assertScope();
+        // A completed scoped record from previous versions represents both phases.
+        if (state() === 'completed') return true;
+        if (moduleEnabled('progress') && !progressComplete() && !await runProgress()) return false;
+        if (moduleEnabled('discussion') && !discussionComplete() && !await runDiscuss()) return false;
+        // Disabled modules never acquire processed IDs or claim completion.
+        syncPhaseState();
+        return true;
+    }
+
     async function runProgress() {
+        if (!moduleEnabled('progress')) return true;
+        assertScope();
         const id = classId();
         const chapters = extractAllChapters(dataSource());
         if (!id || !chapters.length) throw new Error('未找到课程章节，请等待目录加载后重试');
-        const tasks = chapters.filter(chapter => ['Video', 'Page', 'UEditor', 'Html', 'Courseware'].includes(chapter.contentType));
+        const tasks = progressTasks();
         const processed = new Set(readIds(PROCESSED_CHAPTERS_KEY));
         const pending = tasks.filter(chapter => !processed.has(`${chapter.contentType}:${chapter.chapterId}`));
         console.log(`📚 进度阶段：${pending.length} 个待处理章节`);
         let cursor = 0, failed = 0;
         const worker = async () => {
             while (cursor < pending.length) {
+                assertModule('progress');
                 const chapter = pending[cursor++];
                 try {
                     const result = await ajaxRequest({
@@ -387,7 +546,7 @@
                             data: { data: JSON.stringify([{ state: 'listening', level: 2, ch: seconds, mh: 0 }]) },
                         });
                     }
-                    assertScope();
+                    assertModule('progress');
                     markProcessed(PROCESSED_CHAPTERS_KEY, `${chapter.contentType}:${chapter.chapterId}`);
                     console.log(`✅ 章节 ${chapter.chapterId} 请求成功`);
                 } catch (error) {
@@ -396,11 +555,14 @@
                 }
             }
         };
-        await Promise.all(Array.from({ length: Math.min(3, pending.length) }, worker));
+        // Keep the run guard until every cancelled worker has released its loop.
+        const outcomes = await Promise.allSettled(Array.from({ length: Math.min(3, pending.length) }, worker));
+        const stopped = outcomes.find(result => result.status === 'rejected');
+        if (stopped) throw stopped.reason;
         assertScope();
         if (failed) { setState('progress'); console.warn(`⚠️ ${failed} 个章节失败，使用菜单重试`); return false; }
-        setState('discuss');
-        return runDiscuss();
+        syncPhaseState();
+        return true;
     }
 
     // ========== 讨论 ==========
@@ -411,12 +573,14 @@
                 .map(chapter => [String(chapter.chapterId), chapter.topic.topicId]));
         },
         async fetchReplies(id, topicId) {
+            assertModule('discussion');
             const response = await fetchRequest(`/class/${encodeURIComponent(id)}/topic/${encodeURIComponent(topicId)}/detail/api?${Date.now()}`, { credentials: 'include' });
             const data = await response.json();
             if (!Array.isArray(data.replyList?.dataList)) throw new Error('讨论回复数据无效');
             return data.replyList.dataList;
         },
         async submitReply(topicId, message) {
+            assertModule('discussion');
             const body = new URLSearchParams({ topicId, message });
             await fetchRequest(`/topic/${encodeURIComponent(topicId)}/submit/api?${Date.now()}`, {
                 method: 'POST', credentials: 'include',
@@ -427,6 +591,8 @@
     };
 
     async function runDiscuss() {
+        if (!moduleEnabled('discussion')) return true;
+        assertScope();
         if (discussRunning) return false;
         discussRunning = true;
         try {
@@ -436,17 +602,19 @@
             const topicMap = DiscussApi.buildTopicMap();
             const topicChapters = chapters.filter(chapter => chapter.contentType === 'Topic');
             if (topicChapters.length !== Object.keys(topicMap).length) throw new Error('专题 ID 不完整，请等待目录加载后重试');
-            if (!topicChapters.length) { setState('completed'); return true; }
+            if (!topicChapters.length) { syncPhaseState(); return true; }
             const myId = userId();
             if (!myId) throw new Error('未读取到当前用户，无法验证讨论回复');
             const processed = new Set(readIds(PROCESSED_TOPICS_KEY));
             let failed = 0, posted = 0, skipped = 0;
             for (const chapter of topicChapters) {
+                assertModule('discussion');
                 const cid = String(chapter.chapterId), tid = topicMap[cid];
                 if (processed.has(cid)) continue;
                 try {
                     assertScope();
                     const replies = await DiscussApi.fetchReplies(id, tid);
+                    assertModule('discussion');
                     if (replies.some(reply => String(reply.userId) === myId)) {
                         markProcessed(PROCESSED_TOPICS_KEY, cid);
                         continue;
@@ -460,9 +628,10 @@
                     }
                     const longest = candidates.reduce((a, b) => stripTags(a.message).length >= stripTags(b.message).length ? a : b).message;
                     await wait(5000);
-                    assertScope();
+                    assertModule('discussion');
                     await DiscussApi.submitReply(tid, longest);
                     const after = await DiscussApi.fetchReplies(id, tid);
+                    assertModule('discussion');
                     if (!after.some(reply => String(reply.userId) === myId)) throw new Error('提交未确认');
                     markProcessed(PROCESSED_TOPICS_KEY, cid);
                     posted++;
@@ -473,7 +642,7 @@
             }
             assertScope();
             const complete = failed === 0 && skipped === 0;
-            setState(complete ? 'completed' : 'discuss');
+            syncPhaseState();
             console.log(`💬 本轮讨论：提交 ${posted} | 无可用评论 ${skipped} | 失败 ${failed}`);
             return complete;
         } finally { discussRunning = false; }
@@ -597,7 +766,7 @@
         const current = currentChapterId();
         const links = Array.from(document.querySelectorAll('a[content_type][chapter_id]'));
         const quizChapters = extractAllChapters(dataSource()).filter(chapter => chapter.contentType === 'Quiz');
-        const candidates = quizChapters.length ? quizChapters : links.filter(link => link.getAttribute('content_type') === 'Quiz')
+        const candidates = !moduleEnabled('ai') ? [] : quizChapters.length ? quizChapters : links.filter(link => link.getAttribute('content_type') === 'Quiz')
             .map(link => ({ chapterId: link.getAttribute('chapter_id'), contentType: 'Quiz' }));
         for (const chapter of candidates) {
             const id = String(chapter.chapterId);
@@ -667,6 +836,7 @@
         }
         // All known quizzes are already done; a next button could reopen them.
         if (candidates.length) return false;
+        if (!moduleEnabled('ai')) return false;
         // The site's next button retains its routing for versions without chapter links.
         const next = Array.from(document.querySelectorAll('.gxb-next-blue, a[rel="next"]')).find(enabled);
         if (next) {
@@ -702,6 +872,7 @@
     let quizObserver = null;
     let quizObserverTimeout = null;
     function watchQuizCompletion() {
+        if (!executionAllowed()) return;
         if (quizObserver) return;
         const scope = scopedKey(STATE_KEY), chapter = currentChapterId(), epoch = routeEpoch;
         const stop = () => {
@@ -709,7 +880,7 @@
             clearTimeout(quizObserverTimeout); quizObserverTimeout = null;
         };
         const check = () => {
-            if (scope !== scopedKey(STATE_KEY) || currentChapterId() !== chapter || epoch !== routeEpoch) { stop(); return; }
+            if (!executionAllowed() || scope !== scopedKey(STATE_KEY) || currentChapterId() !== chapter || epoch !== routeEpoch) { stop(); return; }
             if (!quizCompletionVisible()) return;
             if (chapter) markProcessed(PROCESSED_QUIZZES_KEY, chapter);
             stop();
@@ -726,23 +897,24 @@
     }
 
     async function continueAfterQuiz() {
-        if (!pendingQuizContinuation || mainRunning || navigating) return;
+        if (!executionAllowed() || !pendingQuizContinuation || mainRunning || navigating) return;
         const { scope, epoch, chapter } = pendingQuizContinuation;
         pendingQuizContinuation = null;
         if (scope !== scopedKey(STATE_KEY) || epoch !== routeEpoch || chapter !== currentChapterId()) return;
         mainRunning = true;
+        refreshControls();
         scopeAtStart = scope;
         epochAtStart = epoch;
         chapterAtStart = chapter;
         try {
             // A directly opened quiz can finish before the course phases ran.
-            const ready = !isChapterPage() || state() === 'completed'
-                || (state() === 'discuss' ? await runDiscuss() : await runProgress());
+            const ready = !isChapterPage() || await runCoursePhases();
             assertScope();
             if (ready) navigateToNextTask();
         } catch (error) { console.error(`❌ 下一任务处理失败: ${error.message}`); }
         finally {
             mainRunning = false; scopeAtStart = null; epochAtStart = null; chapterAtStart = null;
+            refreshControls();
             if (routeRestartRequested) { routeRestartRequested = false; void main(); }
         }
     }
@@ -791,15 +963,16 @@
 
     // ========== 主控 ==========
     async function main() {
-        if (mainRunning || navigating) return;
+        if (!executionRequested() || mainRunning || navigating) return;
         mainRunning = true;
+        refreshControls();
         const requestedEpoch = routeEpoch;
         try {
             // Globals and the quiz form often arrive after document-idle.
             for (let attempt = 0; attempt < 30; attempt++) {
-                if (requestedEpoch !== routeEpoch) return;
+                if (!executionRequested() || requestedEpoch !== routeEpoch) return;
                 const awaitingResult = /\/quiz\/[^/]+\/submission\/[^/]+\/?$/.test(location.pathname) && !verifiedStandaloneSubmission();
-                const awaitingUser = unsafeWindow.gxb?.user && !userId();
+                const awaitingUser = !userId() && (executionSession?.user != null || unsafeWindow.gxb?.user);
                 const awaitingCourse = routeClassId() && unsafeWindow.classinfo?.classId != null
                     && String(unsafeWindow.classinfo.classId) !== routeClassId();
                 if (awaitingResult || awaitingUser || awaitingCourse) {
@@ -807,6 +980,7 @@
                     await wait(500);
                     continue;
                 }
+                assertScope();
                 if (verifiedStandaloneSubmission() || currentQuizProcessed()
                     || (quizUIReady() && (isQuizPage() || quizCompletionVisible()))
                     || (isChapterPage() && !onQuizTask() && courseNavigationReady()) || (quizEntryButton() && quizUIReady(true))) break;
@@ -816,6 +990,7 @@
             scopeAtStart = scopedKey(STATE_KEY);
             epochAtStart = routeEpoch;
             chapterAtStart = currentChapterId();
+            refreshControls();
             rememberQuizReturn();
             if (returnAfterStandaloneQuiz()) return;
             if (currentQuizProcessed()) {
@@ -831,6 +1006,8 @@
             }
             const quizJoin = quizEntryButton();
             if (enabled(quizJoin)) {
+                if (!moduleEnabled('ai')) { console.log('⏭ AI 答题未启用，请自行进入和完成测验'); return; }
+                assertScope();
                 quizJoin.click();
                 console.log('➡️ 已进入测验，等待题目加载');
                 for (let attempt = 0; attempt < 30 && !(quizUIReady() && (isQuizPage() || quizCompletionVisible())); attempt++) {
@@ -847,16 +1024,14 @@
             }
             if (onQuizTask()) { console.warn('⚠️ 当前测验尚未加载 / 未确认完成，使用菜单重试'); return; }
             if (isChapterPage()) {
-                let ready;
-                if (state() === 'completed') ready = true;
-                else if (state() === 'discuss') ready = await runDiscuss();
-                else ready = await runProgress();
+                const ready = await runCoursePhases();
                 if (ready) navigateToNextTask();
             }
         } catch (error) {
             console.error(`❌ 任务停止: ${error.message}`);
         } finally {
             mainRunning = false; scopeAtStart = null; epochAtStart = null; chapterAtStart = null;
+            refreshControls();
             if (routeRestartRequested) { routeRestartRequested = false; void main(); }
             else if (pendingQuizContinuation) void continueAfterQuiz();
         }
@@ -868,12 +1043,16 @@
     let courseReloading = false;
     const checkCourseRoute = () => {
         const next = routeClassId();
+        if (executionSession && (!sameModules(executionSession)
+            || (userId() !== null && executionSession.user !== userId()))) pauseExecution();
         if (courseReloading || next === observedCourseRoute) return;
         observedCourseRoute = next;
         routeEpoch++;
+        if (!executionSession) return;
+        pauseExecution();
         if (!next) return;
         courseReloading = true;
-        console.log('🔄 课程已切换，刷新以加载新课程数据');
+        console.log('🔄 课程已切换，已暂停；刷新后请在新课程重新开始');
         location.reload();
     };
     window.addEventListener('popstate', checkCourseRoute);
@@ -890,8 +1069,15 @@
         clearTimeout(quizObserverTimeout);
         pendingQuizContinuation = null;
         // The outgoing run must release its guard before the new route starts.
-        if (mainRunning) routeRestartRequested = true;
-        else void main();
+        if (executionAllowed()) {
+            if (mainRunning) routeRestartRequested = true;
+            else void main();
+        }
     });
-    void main();
+    if (executionSession && (executionSession.host !== location.host
+        || (classId() && executionSession.course !== String(classId()))
+        || (userId() !== null && executionSession.user !== userId())
+        || !sameModules(executionSession))) pauseExecution();
+    mountControls();
+    if (executionRequested()) void main();
 })();
