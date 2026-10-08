@@ -6,6 +6,14 @@
 
 后续开发与发布安排见 [兼容性与发布蓝图](docs/release-blueprint.md)，包含按优先级排序的工作流、依赖与验收标准。
 
+## 来源与许可证状态
+
+本项目是在 [Wu557666/gaoxiaobang](https://github.com/Wu557666/gaoxiaobang) 与 [Tyrone2333/Gaoxiaobang-Script](https://github.com/Tyrone2333/Gaoxiaobang-Script) 的署名来源基础上整合、修改的用户脚本，并非全部由本项目原创。
+
+目前未添加覆盖仓库整体的 `LICENSE`，因为尚未确认上游条款或其他授权是否足以覆盖组合脚本的使用、修改和再分发，也尚未确定兼容的整体许可证。上游包含用途声明；公开可见和保留署名不等于已取得完整的再许可授权。本仓库目前不宣称已按某个开源许可证发布。
+
+具体来源、核查版本、上游声明及测试依赖的许可证范围见 [来源与授权记录](docs/sources-and-licensing.md)。这份记录用于说明现状，不授予新的许可，也不替代上游权利人的授权。
+
 ## 安装与使用
 
 1. 在浏览器中安装支持 `GM_*` API 的用户脚本管理器，例如 Tampermonkey。
