@@ -24,14 +24,25 @@ const assert = (cond, msg) => {
 };
 
 function boot({ html = '', pageGlobals = {}, gmStore = {}, deepseekReply = 'B', apiResponder = null,
-    ajaxResponder = null, url = 'https://xmut.class.gaoxiaobang.com/class/10001/unit', referrer = '', onReady = null } = {}) {
+    ajaxResponder = null, url = 'https://xmut.class.gaoxiaobang.com/class/10001/unit', referrer = '', onReady = null,
+    autoStart = true, enabledModules = ['progress', 'discussion', 'ai'], sessionRecord } = {}) {
     const dom = new JSDOM(`<html><body>${html}</body></html>`, {
         url,
         ...(referrer ? { referrer } : {}),
     });
     const { window } = dom;
-    const store = { ...gmStore };
-    const fx = { ajaxCalls: [], alerts: [], deepseekReqs: [], intervals: [], timeouts: [], submits: 0, confirms: 0, deleted: {}, menus: [], navigations: [], reloads: 0 };
+    const moduleKeys = { progress: 'gb_enable_progress', discussion: 'gb_enable_discussion', ai: 'gb_enable_ai' };
+    const store = { ...(enabledModules === null ? {} : Object.fromEntries(Object.entries(moduleKeys).map(([module, key]) => [key, enabledModules.includes(module) ? 'on' : 'off']))), ...gmStore };
+    const sessionUrl = new URL(url);
+    const activeUser = pageGlobals.gxb?.user?._?.currentUser?.userId;
+    if (sessionRecord !== undefined || autoStart) {
+        const record = sessionRecord === undefined ? { host: sessionUrl.host,
+            course: sessionUrl.pathname.match(/\/class\/([^/]+)/)?.[1] || String(pageGlobals.classinfo?.classId || ''),
+            user: activeUser == null || activeUser === '' ? null : String(activeUser),
+            modules: Object.entries(moduleKeys).filter(([, key]) => store[key] === 'on').map(([module]) => module) } : sessionRecord;
+        if (record != null) window.sessionStorage.setItem('gb_execution_session', JSON.stringify(record));
+    }
+    const fx = { ajaxCalls: [], fetchCalls: [], alerts: [], deepseekReqs: [], intervals: [], timeouts: [], submits: 0, confirms: 0, deleted: {}, menus: [], navigations: [], reloads: 0, apiAborts: 0 };
 
     window.setTimeout = (fn, ms = 0) => {
         if (ms >= 10000) { fx.timeouts.push({ fn, ms }); return fx.timeouts.length + 1; }
@@ -46,8 +57,10 @@ function boot({ html = '', pageGlobals = {}, gmStore = {}, deepseekReply = 'B', 
     window.GM_registerMenuCommand = (name, callback) => fx.menus.push({ name, callback });
     window.GM_xmlhttpRequest = (opts) => {
         fx.deepseekReqs.push(opts);
-        if (apiResponder) return apiResponder(opts, fx.deepseekReqs.length);
+        const handle = { abort() { fx.apiAborts++; opts.onabort?.({}); } };
+        if (apiResponder) return apiResponder(opts, fx.deepseekReqs.length) || handle;
         if (opts.onload) opts.onload({ status: 200, responseText: JSON.stringify({ choices: [{ message: { content: deepseekReply } }] }) });
+        return handle;
     };
     window.alert = (m) => fx.alerts.push(m);
     window.prompt = () => 'sk-test';
@@ -77,6 +90,7 @@ function boot({ html = '', pageGlobals = {}, gmStore = {}, deepseekReply = 'B', 
     if (onReady) onReady(window);
     const mockedFetch = window.fetch;
     window.fetch = async (...args) => {
+        fx.fetchCalls.push(args);
         const response = await mockedFetch(...args);
         // Browser Response supports both readers. Existing fixtures use json
         // shorthand; supply text without calling any real networking API.
@@ -1313,7 +1327,353 @@ const selectedIds = ({ window }) => [...window.document.querySelectorAll('i[answ
         await flush();
         assert(polls > 0 && polls <= 30, 'missing assignment catalog link is awaited for a bounded number of readiness polls');
         assert(fixture.fx.navigations.length === 0 && fixture.fx.ajaxCalls.length === 0 && fixture.fx.deepseekReqs.length === 0, 'a catalog link that never renders causes no false assignment handoff or unrelated requests');
-        assert(Object.keys(fixture.store).length === 1 && stateOf(fixture.store, 10003) === 'completed', 'missing assignment link preserves existing course completion without recording the assignment as completed');
+        assert(Object.keys(fixture.store).filter(key => !key.startsWith('gb_enable_')).length === 1 && stateOf(fixture.store, 10003) === 'completed', 'missing assignment link preserves existing course completion without recording the assignment as completed');
+    }
+
+    console.log('\n── Execution controls: fresh pages pause and module consent ──');
+    const clickControl = (fixture, id) => fixture.window.document.getElementById(id).click();
+    const changeModule = (fixture, module, value) => {
+        const input = fixture.window.document.querySelector(`[data-gxb-module="${module}"]`);
+        input.checked = value;
+        input.dispatchEvent(new fixture.window.Event('change', { bubbles: true }));
+    };
+    const controlSession = fixture => fixture.window.sessionStorage.getItem('gb_execution_session');
+    const scopedWrites = fixture => Object.keys(fixture.store).filter(key => /^(gb_auto_step|gb_processed_|gb_quiz_return_route)/.test(key));
+    const moduleCourse = { classinfo: { classId: 10001 }, unitList: [{ contentType: 'Page', chapterId: 101 }, { contentType: 'Topic', chapterId: 102, topic: { topicId: 60001 } }], gxb: { user: { _: { currentUser: { userId: 'u1' } } } } };
+    const mineReplies = window => { window.fetch = async () => ({ ok: true, json: async () => ({ replyList: { dataList: [{ userId: 'u1', message: 'Existing verified fixture reply' }] } }) }); };
+    {
+        const fixture = boot({ autoStart: false, enabledModules: null, pageGlobals: moduleCourse });
+        await flush();
+        assert(!!fixture.window.document.getElementById('gxb-helper-controls') && fixture.window.document.getElementById('gxb-status').textContent === '已暂停', 'fresh installation presents visible paused execution controls');
+        assert([...fixture.window.document.querySelectorAll('[data-gxb-module]')].every(input => !input.checked), 'fresh installation leaves every module disabled');
+        assert(fixture.fx.ajaxCalls.length === 0 && fixture.fx.fetchCalls.length === 0 && fixture.fx.deepseekReqs.length === 0 && fixture.fx.navigations.length === 0 && scopedWrites(fixture).length === 0, 'fresh paused page makes no requests, navigation, or course-state writes');
+        clickControl(fixture, 'gxb-start');
+        await flush();
+        assert(!controlSession(fixture) && fixture.fx.ajaxCalls.length === 0, 'Start requires at least one enabled module');
+        changeModule(fixture, 'progress', true);
+        assert(!controlSession(fixture), 'enabling a module alone preserves the paused state');
+        clickControl(fixture, 'gxb-start');
+        await flush();
+        const saved = JSON.parse(controlSession(fixture));
+        assert(saved.host === 'xmut.class.gaoxiaobang.com' && saved.course === '10001' && saved.user === 'u1' && fixture.fx.ajaxCalls.length === 1, 'explicit Start grants this tab its exact host/course/account session and runs enabled progress');
+    }
+    {
+        const fixture = quizFixture({ autoStart: false, enabledModules: [], pageGlobals: quizCourse });
+        await flush();
+        assert(fixture.fx.deepseekReqs.length === 0 && selectedIds(fixture).length === 0 && !submitted(fixture) && fixture.fx.navigations.length === 0 && scopedWrites(fixture).length === 0, 'a fresh paused quiz does not select, submit, navigate, or mark completion');
+    }
+    {
+        let joins = 0;
+        const fixture = boot({ autoStart: false, enabledModules: [],
+            pageGlobals: { classinfo: { classId: 10001 }, unitList: [{ contentType: 'Quiz', chapterId: 100 }] },
+            html: '<button class="quiz-join" chapter_id="100">Enter</button>',
+            onReady(window) { window.document.querySelector('.quiz-join').addEventListener('click', () => joins++); },
+        });
+        await flush();
+        assert(joins === 0 && fixture.fx.deepseekReqs.length === 0, 'a fresh paused quiz entry is never opened');
+    }
+    {
+        const fixture = boot({ enabledModules: ['progress'], pageGlobals: moduleCourse, onReady: mineReplies });
+        await flush();
+        assert(fixture.fx.ajaxCalls.length === 1 && fixture.fx.fetchCalls.length === 0 && fixture.fx.deepseekReqs.length === 0, 'progress-only consent runs course progress without discussion or AI requests');
+        assert(stateOf(fixture.store, 10001, 'u1') !== 'completed' && !processedOf(fixture.store, 10001, 'u1').includes('102'), 'disabled discussion acquires no completion record and keeps the course incomplete');
+    }
+    {
+        const fixture = boot({ enabledModules: ['discussion'], pageGlobals: moduleCourse, onReady: mineReplies });
+        await flush();
+        assert(fixture.fx.ajaxCalls.length === 0 && fixture.fx.fetchCalls.length === 1 && fixture.fx.deepseekReqs.length === 0, 'discussion-only consent checks replies without progress or AI requests');
+        assert(stateOf(fixture.store, 10001, 'u1') !== 'completed' && !fixture.store[scopedKey('gb_processed_chapters', 10001, 'u1')], 'disabled progress acquires no chapter record and keeps the course incomplete');
+    }
+    {
+        const fixture = quizFixture({ enabledModules: ['ai'], pageGlobals: { ...moduleCourse, chapterinfo: { chapterId: 100 } } });
+        await flush();
+        assert(fixture.fx.deepseekReqs.length === 1 && submitted(fixture) && fixture.fx.ajaxCalls.length === 0 && fixture.fx.fetchCalls.length === 0, 'AI-only consent answers the quiz without running course progress or discussion');
+    }
+    {
+        let joins = 0;
+        const fixture = boot({ enabledModules: ['progress'], url: 'https://xmut.class.gaoxiaobang.com/class/10001/unit#chapterId=100',
+            pageGlobals: { classinfo: { classId: 10001 }, unitList: [{ contentType: 'Quiz', chapterId: 100 }] },
+            html: '<button class="quiz-join" chapter_id="100">Enter</button>',
+            onReady(window) { window.document.querySelector('.quiz-join').addEventListener('click', () => joins++); },
+        });
+        await flush();
+        assert(joins === 0 && fixture.fx.deepseekReqs.length === 0, 'AI disabled never opens the quiz entry automatically');
+    }
+    {
+        const fixture = quizFixture({ enabledModules: ['progress'], url: 'https://xmut.class.gaoxiaobang.com/class/10001/unit#chapterId=100',
+            pageGlobals: { classinfo: { classId: 10001 }, unitList: [{ contentType: 'Page', chapterId: 99 }, { contentType: 'Quiz', chapterId: 100 }] },
+        });
+        await flush();
+        assert(fixture.fx.deepseekReqs.length === 0 && !submitted(fixture) && selectedIds(fixture).length === 0, 'AI disabled leaves a visible quiz form untouched');
+        fixture.window.document.body.insertAdjacentHTML('beforeend', '<div class="quiz-result" data-chapter-id="100">测验已完成</div>');
+        await flush();
+        assert(fixture.fx.ajaxCalls.length === 1 && JSON.parse(fixture.store[scopedKey('gb_processed_quizzes')] || '[]').includes('100'), 'verified human quiz completion continues the enabled progress module while AI remains disabled');
+    }
+
+    console.log('\n── Execution controls: pause blocks pending and late effects ──');
+    {
+        let pending;
+        const fixture = quizFixture({ autoStart: false, enabledModules: ['ai'], apiResponder: opts => { pending = opts; } });
+        clickControl(fixture, 'gxb-start');
+        await flush();
+        clickControl(fixture, 'gxb-pause');
+        pending.onload({ status: 200, responseText: '{"choices":[{"message":{"content":"B"}}]}' });
+        await flush();
+        assert(fixture.fx.apiAborts === 1 && !controlSession(fixture), 'Pause clears session consent and aborts an available pending DeepSeek request handle');
+        assert(selectedIds(fixture).length === 0 && !submitted(fixture) && fixture.fx.navigations.length === 0 && scopedWrites(fixture).length === 0, 'late AI response after Pause cannot select, submit, navigate, or write completion');
+    }
+    {
+        let pending;
+        const clicks = [];
+        const fixture = quizFixture({ autoStart: false, enabledModules: ['ai'],
+            apiResponder: (opts, n) => n === 1 ? (pending = opts, undefined) : opts.onload({ status: 200, responseText: '{"choices":[{"message":{"content":"A"}}]}' }),
+            onReady(window) { window.document.querySelectorAll('i[answer_id]').forEach(icon => icon.addEventListener('click', () => clicks.push(icon.getAttribute('answer_id')))); },
+        });
+        clickControl(fixture, 'gxb-start');
+        await flush();
+        clickControl(fixture, 'gxb-pause');
+        fixture.fx.menus.find(menu => /重试当前页面/.test(menu.name)).callback();
+        pending.onload({ status: 200, responseText: '{"choices":[{"message":{"content":"B"}}]}' });
+        await flush();
+        assert(fixture.fx.deepseekReqs.length === 2 && controlSession(fixture) && submitted(fixture), 'explicit restart while cancellation settles runs the next request after the old run releases its guard');
+        assert(!clicks.includes('a2') && JSON.stringify(selectedIds(fixture)) === '["a1"]', 'cancelled old AI response cannot affect a restarted quiz run');
+    }
+    {
+        let confirmationWait;
+        const fixture = quizFixture({ enabledModules: ['ai'], deepseekReply: 'A', onReady(window) {
+            const shortTimer = window.setTimeout;
+            window.setTimeout = (callback, ms) => ms === 800 ? (confirmationWait = callback, 1) : shortTimer(callback, ms);
+        } });
+        await flush();
+        assert(submitted(fixture) && !!confirmationWait, 'fixture pauses after submit intent and before confirmation');
+        clickControl(fixture, 'gxb-pause');
+        confirmationWait();
+        await flush();
+        assert(!fixture.window.document.querySelector('.gxb-sure').dataset.autoClicked && fixture.fx.navigations.length === 0, 'Pause between submit and confirm blocks the confirmation click and navigation');
+    }
+    {
+        let postWait;
+        const fixture = boot({ enabledModules: ['discussion'],
+            pageGlobals: { classinfo: { classId: 10001 }, unitList: [{ contentType: 'Topic', chapterId: 102, topic: { topicId: 60001 } }], gxb: moduleCourse.gxb },
+            onReady(window) {
+                window.fetch = async () => ({ ok: true, json: async () => ({ replyList: { dataList: [{ userId: 'u2', message: 'Other fixture reply' }] } }) });
+                const shortTimer = window.setTimeout;
+                window.setTimeout = (callback, ms) => ms === 5000 ? (postWait = callback, 1) : shortTimer(callback, ms);
+            },
+        });
+        await flush();
+        assert(!!postWait && fixture.fx.fetchCalls.length === 1, 'fixture reaches the discussion delay before posting');
+        clickControl(fixture, 'gxb-pause');
+        postWait();
+        await flush();
+        assert(!fixture.fx.fetchCalls.some(([, init]) => init?.method === 'POST') && !processedOf(fixture.store, 10001, 'u1').includes('102'), 'Pause before a delayed discussion post prevents the POST and any processed-topic record');
+    }
+    {
+        let pending, pausedBeforeStore = false;
+        const fixture = boot({ enabledModules: ['progress'], pageGlobals: { classinfo: { classId: 10001 }, unitList: [{ contentType: 'Page', chapterId: 101 }] },
+            ajaxResponder: opts => { pending = opts; }, onReady(window) {
+                const save = window.GM_setValue;
+                window.GM_setValue = (key, value) => {
+                    if (key === 'gb_enable_ai') pausedBeforeStore = !window.sessionStorage.getItem('gb_execution_session') && window.document.getElementById('gxb-status').textContent === '已暂停';
+                    save(key, value);
+                };
+            },
+        });
+        await flush();
+        changeModule(fixture, 'ai', true);
+        pending.success('{}');
+        await flush();
+        assert(pausedBeforeStore && fixture.store.gb_enable_ai === 'on' && !controlSession(fixture), 'changing a module pauses and removes session consent before persisting its preference');
+        assert(!fixture.store[scopedKey('gb_processed_chapters')], 'late progress response after a module change cannot write a completion record');
+    }
+
+    console.log('\n── Execution controls: session continuity and preserved settings ──');
+    {
+        let pending;
+        const first = boot({ enabledModules: ['progress'], pageGlobals: moduleCourse, ajaxResponder: opts => { pending = opts; } });
+        await flush();
+        const saved = JSON.parse(controlSession(first));
+        const reloaded = boot({ autoStart: false, enabledModules: ['progress'], pageGlobals: moduleCourse, gmStore: first.store, sessionRecord: saved });
+        await flush();
+        assert(!!pending && reloaded.fx.ajaxCalls.length === 1 && !!controlSession(reloaded), 'same-tab reload with matching host/course/account resumes its enabled module');
+    }
+    for (const [name, record] of [
+        ['different course', { host: 'xmut.class.gaoxiaobang.com', course: '10002', user: 'u1', modules: ['progress'] }],
+        ['different user', { host: 'xmut.class.gaoxiaobang.com', course: '10001', user: 'u2', modules: ['progress'] }],
+        ['different host', { host: 'other.class.gaoxiaobang.com', course: '10001', user: 'u1', modules: ['progress'] }],
+    ]) {
+        const fixture = boot({ autoStart: false, enabledModules: ['progress'], pageGlobals: moduleCourse, sessionRecord: record });
+        await flush();
+        assert(fixture.fx.ajaxCalls.length === 0 && fixture.fx.fetchCalls.length === 0 && scopedWrites(fixture).length === 0, `${name} session does not authorize work or writes in the current scope`);
+    }
+    {
+        const fixture = boot({ autoStart: false, enabledModules: ['progress', 'discussion', 'ai'], pageGlobals: moduleCourse,
+            gmStore: { gb_deepseek_key: 'sk-existing-fixture', gb_quiz_confirm: 'off', [scopedKey('gb_auto_step', 10001, 'u1')]: 'completed' },
+        });
+        await flush();
+        assert(fixture.fx.ajaxCalls.length === 0 && fixture.fx.fetchCalls.length === 0 && !controlSession(fixture), 'old enabled preferences and completion state cannot authorize automatic execution after upgrade');
+        assert(fixture.store.gb_deepseek_key === 'sk-existing-fixture' && fixture.store.gb_quiz_confirm === 'off', 'upgrade preserves the saved API key and quiz confirmation preference');
+        fixture.fx.menus.find(menu => /重置当前课程/.test(menu.name)).callback();
+        assert(['progress', 'discussion', 'ai'].every(module => fixture.store[`gb_enable_${module}`] === 'on') && fixture.store.gb_deepseek_key === 'sk-existing-fixture' && fixture.store.gb_quiz_confirm === 'off', 'reset clears course records while preserving module, API, and confirmation preferences');
+        fixture.fx.menus.find(menu => /设置 DeepSeek API Key/.test(menu.name)).callback();
+        assert(['progress', 'discussion', 'ai'].every(module => fixture.store[`gb_enable_${module}`] === 'on') && !controlSession(fixture), 'editing an API setting preserves module choices and remains paused');
+    }
+
+    console.log('\n── Execution controls: late user identity and cancellation guard lifecycle ──');
+    {
+        let initialized = false, requestBeforeUser = false;
+        const fixture = boot({ autoStart: false, enabledModules: ['progress'],
+            sessionRecord: { host: 'xmut.class.gaoxiaobang.com', course: '10001', user: 'u1', modules: ['progress'] },
+            pageGlobals: { classinfo: { classId: 10001 }, unitList: [{ contentType: 'Page', chapterId: 101 }] },
+            ajaxResponder: opts => { if (!initialized) requestBeforeUser = true; opts.success('{}'); },
+            onReady(window) {
+                const shortTimer = window.setTimeout;
+                window.setTimeout = (callback, ms) => {
+                    if (ms === 500 && !initialized) {
+                        Promise.resolve().then(() => {
+                            initialized = true;
+                            window.gxb = { user: { _: { currentUser: { userId: 'u1' } } } };
+                        });
+                    }
+                    return shortTimer(callback, ms);
+                };
+            },
+        });
+        await flush();
+        assert(initialized && !requestBeforeUser && fixture.fx.ajaxCalls.length === 1, 'saved named-account session waits for late user globals before making any request');
+        assert(stateOf(fixture.store, 10001, 'u1') === 'completed' && !fixture.store[scopedKey('gb_auto_step')], 'late matched user work writes only the named account scope');
+    }
+    {
+        const fixture = boot({ enabledModules: ['progress'], pageGlobals: { classinfo: { classId: 10001 }, unitList: [{ contentType: 'Page', chapterId: 101 }], gxb: { user: { _: { currentUser: { userId: 'u1' } } } } } });
+        await flush();
+        fixture.window.gxb.user._.currentUser.userId = 'u2';
+        fixture.fx.intervals.forEach(callback => callback());
+        await flush();
+        assert(!controlSession(fixture) && fixture.window.document.getElementById('gxb-status').textContent === '已暂停', 'idle account switch invalidates consent and visibly pauses on the route watcher tick');
+        assert(stateOf(fixture.store, 10001, 'u1') === 'completed' && !fixture.store[scopedKey('gb_auto_step', 10001, 'u2')], 'idle account switch preserves old completion without writing into the newly identified account');
+    }
+    {
+        const oldRequests = [];
+        let restarting = false;
+        const fixture = boot({ autoStart: false, enabledModules: ['progress'],
+            pageGlobals: { classinfo: { classId: 10001 }, unitList: [101, 102, 103, 104, 105].map(chapterId => ({ contentType: 'Page', chapterId })) },
+            ajaxResponder: opts => { if (restarting) opts.success('{}'); else oldRequests.push(opts); },
+        });
+        clickControl(fixture, 'gxb-start');
+        await flush();
+        assert(oldRequests.length === 3, 'progress cancellation fixture holds three parallel workers with queued chapters remaining');
+        clickControl(fixture, 'gxb-pause');
+        restarting = true;
+        fixture.fx.menus.find(menu => /重试当前页面/.test(menu.name)).callback();
+        oldRequests.forEach(opts => opts.success('{}'));
+        await flush();
+        assert(fixture.fx.ajaxCalls.length === 8 && JSON.parse(fixture.store[scopedKey('gb_processed_chapters')] || '[]').length === 5 && stateOf(fixture.store) === 'completed', 'all cancelled progress workers release their old guard before a queued restart processes the five chapters');
+    }
+    {
+        const fixture = quizFixture({ enabledModules: ['ai'], gmStore: { gb_quiz_confirm: 'on' } });
+        await flush();
+        fixture.fx.menus.find(menu => /切换答题模式/.test(menu.name)).callback();
+        assert(!controlSession(fixture) && fixture.fx.reloads === 1 && fixture.store.gb_quiz_confirm === 'off', 'changing quiz submission mode pauses before saving its preference and reloading');
+        assert(fixture.store.gb_enable_ai === 'on' && fixture.store.gb_deepseek_key === 'sk-fixture' && !submitted(fixture), 'submission-mode setting preserves module/API preferences without submitting a paused quiz');
+    }
+
+    {
+        let pending;
+        const fixture = quizFixture({ autoStart: false, enabledModules: ['ai'], apiResponder: opts => { pending = opts; return {}; } });
+        clickControl(fixture, 'gxb-start');
+        await flush();
+        fixture.fx.menus.find(menu => /暂停当前标签页/.test(menu.name)).callback();
+        pending.onload({ status: 200, responseText: '{"choices":[{"message":{"content":"B"}}]}' });
+        await flush();
+        assert(fixture.fx.apiAborts === 0 && !controlSession(fixture) && selectedIds(fixture).length === 0 && !submitted(fixture), 'Pause remains effective when the pending request handle offers no abort method');
+    }
+
+    console.log('\n── Execution controls: shared preferences are rechecked before side effects ──');
+    {
+        let detail;
+        const fixture = boot({ enabledModules: ['progress', 'ai'],
+            pageGlobals: { classinfo: { classId: 10001 }, unitList: [{ contentType: 'Video', chapterId: 101 }] },
+            ajaxResponder: opts => { if (opts.type === 'GET') detail = opts; else opts.success('ok'); },
+        });
+        await flush();
+        fixture.store.gb_enable_progress = 'off';
+        detail.success('{"chapter":{"video":{"seconds":600}}}');
+        await flush();
+        assert(fixture.fx.ajaxCalls.length === 1 && !fixture.store[scopedKey('gb_processed_chapters')], 'shared progress preference disabled during a pending detail GET blocks the completion POST and chapter record');
+    }
+    {
+        let pending;
+        const fixture = quizFixture({ enabledModules: ['progress', 'ai'], apiResponder: opts => { pending = opts; } });
+        await flush();
+        fixture.store.gb_enable_ai = 'off';
+        pending.onload({ status: 200, responseText: '{"choices":[{"message":{"content":"B"}}]}' });
+        await flush();
+        assert(selectedIds(fixture).length === 0 && !submitted(fixture), 'shared AI preference disabled during a pending answer request blocks later selection and submission');
+    }
+    {
+        let pending, initialized = false;
+        const fixture = boot({ autoStart: false, enabledModules: ['ai'],
+            sessionRecord: { host: 'xmut.class.gaoxiaobang.com', course: '10001', user: 'u1', modules: ['ai'] },
+            pageGlobals: { questionList: [{ title: 'Late user quiz', answerList: [{ answerId: 'a1', text: 'one' }] }] },
+            gmStore: { gb_deepseek_key: 'sk-fixture' }, html: '<i class="gxb-icon-radio" answer_id="a1"></i><button id="quizSubmit">Submit</button>',
+            apiResponder: opts => { pending = opts; },
+            onReady(window) {
+                const shortTimer = window.setTimeout;
+                window.setTimeout = (callback, ms) => {
+                    if (ms === 500 && !initialized) Promise.resolve().then(() => {
+                        initialized = true;
+                        window.gxb = { user: { _: { currentUser: { userId: 'u1' } } } };
+                    });
+                    return shortTimer(callback, ms);
+                };
+            },
+        });
+        await flush();
+        assert(!!pending && fixture.window.document.getElementById('gxb-status').textContent.includes('已启动'), 'matching late user information refreshes the controls to active while its AI request remains pending');
+        clickControl(fixture, 'gxb-pause');
+        await flush();
+    }
+    {
+        let firstClicks = 0, secondClicks = 0;
+        const fixture = quizFixture({ enabledModules: ['ai'], deepseekReply: 'A',
+            questions: [{ title: 'One answer rendered twice', answerList: [{ answerId: 'a1', text: 'one' }] }],
+            html: '<div><i id="firstCopy" class="gxb-icon-radio" answer_id="a1"></i></div><div><i id="secondCopy" class="gxb-icon-radio" answer_id="a1"></i></div><button id="quizSubmit">Submit</button>',
+            onReady(window) {
+                window.document.getElementById('firstCopy').addEventListener('click', () => { firstClicks++; window.document.getElementById('gxb-pause').click(); });
+                window.document.getElementById('secondCopy').addEventListener('click', () => secondClicks++);
+            },
+        });
+        await flush();
+        assert(firstClicks === 1 && secondClicks === 0 && !submitted(fixture), 'Pause after the first mirrored option toggle prevents toggling the second copy or submitting');
+    }
+
+    console.log('\n── Execution controls: module snapshots prevent cross-tab consent expansion ──');
+    {
+        let pending, restarted = false;
+        const fixture = boot({ enabledModules: ['progress'], pageGlobals: moduleCourse, onReady: mineReplies,
+            ajaxResponder: opts => { if (restarted) opts.success('{}'); else pending = opts; },
+        });
+        await flush();
+        fixture.store.gb_enable_discussion = 'on';
+        pending.success('{}');
+        await flush();
+        assert(fixture.fx.fetchCalls.length === 0 && !processedOf(fixture.store, 10001, 'u1').includes('102'), 'enabling discussion in another tab cannot expand a pending progress-only session into discussion requests');
+        fixture.fx.intervals.forEach(callback => callback());
+        assert(!controlSession(fixture), 'shared module preference mismatch removes the old execution consent on the watcher tick');
+        restarted = true;
+        fixture.fx.menus.find(menu => /重试当前页面/.test(menu.name)).callback();
+        await flush();
+        assert(fixture.fx.fetchCalls.length === 1 && processedOf(fixture.store, 10001, 'u1').includes('102') && JSON.parse(controlSession(fixture)).modules.includes('discussion'), 'renewed explicit Start snapshots the newly selected discussion module and permits its work');
+    }
+    for (const [name, modules] of [
+        ['missing snapshot', undefined], ['empty snapshot', []], ['duplicate snapshot', ['progress', 'progress']],
+        ['unknown module snapshot', ['unrecognized']], ['snapshot differs from preferences', ['ai']],
+    ]) {
+        const sessionRecord = { host: 'xmut.class.gaoxiaobang.com', course: '10001', user: 'u1' };
+        if (modules !== undefined) sessionRecord.modules = modules;
+        const fixture = boot({ autoStart: false, enabledModules: ['progress'], pageGlobals: moduleCourse, sessionRecord });
+        await flush();
+        assert(fixture.fx.ajaxCalls.length === 0 && fixture.fx.fetchCalls.length === 0 && scopedWrites(fixture).length === 0 && fixture.window.document.getElementById('gxb-status').textContent === '已暂停', `${name} cannot restore execution consent`);
     }
 
     console.log(`\n═══ Results: ${pass} passed, ${fail} failed ═══`);
