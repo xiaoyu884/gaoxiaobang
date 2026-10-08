@@ -2,6 +2,8 @@
 
 用于 `*.class.gaoxiaobang.com` 的 Tampermonkey 用户脚本，入口文件为 `gxb-helper.user.js`。它读取当前课程的页面数据，调用站内接口处理视频、阅读和讨论，并通过 DeepSeek 为选择题填写答案。
 
+后续开发与发布安排见 [兼容性与发布蓝图](docs/release-blueprint.md)，包含按优先级排序的工作流、依赖与验收标准。
+
 ## 安装与使用
 
 1. 在浏览器中安装支持 `GM_*` API 的用户脚本管理器，例如 Tampermonkey。
