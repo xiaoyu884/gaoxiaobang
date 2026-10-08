@@ -1,4 +1,4 @@
-# 高校邦助手：兼容性与发布蓝图
+# 我不想上高校邦：兼容性与发布蓝图
 
 更新日期：2026-10-08。本文合并此前六项公开发布工作流与近期五项改进计划，作为后续实现和验收的依据。仓库已经公开；公开可见、发布可安装版本、验证浏览器兼容性及明确代码授权是不同事项。
 
@@ -143,4 +143,4 @@ P0：优先处理的兼容性问题或授权事项。P1：可靠发布所需的�
 - [Tampermonkey：执行用户脚本的权限与 Edge 步骤](https://www.tampermonkey.net/faq.php?q=Q209)
 - [Microsoft：安装、禁用或移除 Edge 扩展](https://support.microsoft.com/en-gb/edge/add-turn-off-or-remove-extensions-in-microsoft-edge)
 - [GitHub：仓库许可证说明](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/licensing-a-repository)
-- [已合并的执行控制 PR #1](https://github.com/xiaoyu884/gaoxiaobang/pull/1)
+- [已合并的执行控制 PR #1](https://github.com/xiaoyu884/i-dont-wanna-take-gaoxiaobang/pull/1)

@@ -1,9 +1,12 @@
 // ==UserScript==
-// @name         高校邦助手 xmut (进度+讨论+DeepSeek答题)
+// @name         我不想上高校邦
+// @name:en      I Don't Wanna Take Gaoxiaobang
 // @namespace    https://github.com/Wu557666/gaoxiaobang
-// @version      1.4.0
+// @version      1.4.1
 // @description  视频/页面进度 + 讨论回复 + DeepSeek 测验答题；默认暂停，各模块需启用，支持开始和暂停
 // @author       combined from Wu557666/gaoxiaobang + Tyrone2333/Gaoxiaobang-Script
+// @homepageURL  https://github.com/xiaoyu884/i-dont-wanna-take-gaoxiaobang
+// @supportURL   https://github.com/xiaoyu884/i-dont-wanna-take-gaoxiaobang/issues
 // @icon         https://favicon.im/xmut.gaoxiaobang.com?size=128
 // @match        https://xmut.class.gaoxiaobang.com/*
 // @match        https://*.class.gaoxiaobang.com/*
@@ -179,9 +182,9 @@
     function mountControls() {
         const panel = document.createElement('aside');
         panel.id = 'gxb-helper-controls';
-        panel.setAttribute('aria-label', '高校邦助手运行控制');
+        panel.setAttribute('aria-label', '我不想上高校邦运行控制');
         panel.style.cssText = 'position:fixed;right:16px;bottom:16px;z-index:2147483647;background:#fff;color:#222;border:1px solid #bbb;border-radius:8px;padding:12px;box-shadow:0 2px 12px #0002;font:14px/1.6 sans-serif;width:240px';
-        panel.innerHTML = '<strong>高校邦助手</strong><div id="gxb-status" role="status" aria-live="polite"></div>'
+        panel.innerHTML = '<strong>我不想上高校邦</strong><div id="gxb-status" role="status" aria-live="polite"></div>'
             + '<label style="display:block"><input type="checkbox" data-gxb-module="progress"> 视频 / 阅读进度</label>'
             + '<label style="display:block"><input type="checkbox" data-gxb-module="discussion"> 发布讨论回复</label>'
             + '<label style="display:block"><input type="checkbox" data-gxb-module="ai"> AI 测验答案</label>'
