@@ -8,7 +8,7 @@
 
 | 上游 | 已署名的来源范围 | 本次核查的文件与版本 |
 | --- | --- | --- |
-| [Wu557666/gaoxiaobang](https://github.com/Wu557666/gaoxiaobang) | 视频、阅读页面与讨论处理逻辑 | [厦门理工高校邦（视频+页面+讨论区）.js](https://github.com/Wu557666/gaoxiaobang/blob/e7db8b0979ce83292e0cd9c9997a3074f649f481/%E5%8E%A6%E9%97%A8%E7%90%86%E5%B7%A5%E9%AB%98%E6%A0%A1%E9%82%A6%EF%BC%88%E8%A7%86%E9%A2%91%2B%E9%A1%B5%E9%9D%A2%2B%E8%AE%A8%E8%AE%BA%E5%8C%BA%EF%BC%89.js)，提交 `e7db8b0979ce83292e0cd9c9997a3074f649f481`；脚本署名为 `wu某人 (优化 by Assistant)` |
+| [Wu557666/gaoxiaobang](https://github.com/Wu557666/gaoxiaobang) | 视频、阅读页面与讨论处理逻辑 | 上游视频、阅读与讨论脚本（[固定版本目录](https://github.com/Wu557666/gaoxiaobang/tree/e7db8b0979ce83292e0cd9c9997a3074f649f481)），提交 `e7db8b0979ce83292e0cd9c9997a3074f649f481`；脚本署名为 `wu某人 (优化 by Assistant)` |
 | [Tyrone2333/Gaoxiaobang-Script](https://github.com/Tyrone2333/Gaoxiaobang-Script) | 测验题目与选项 DOM 操作逻辑 | [gxb.js](https://github.com/Tyrone2333/Gaoxiaobang-Script/blob/4c8447ecbb9c0950d3b926b48ceb85bc70985814/gxb.js)，提交 `4c8447ecbb9c0950d3b926b48ceb85bc70985814`；头部记载 `Created by enzo`，元数据署名为 `en20` |
 
 这里的提交号固定本次核查的上游快照，不代表已确认最初整合时使用的精确版本。范围依据现有署名及相应代码功能记录，尚未完成逐段来源比对。

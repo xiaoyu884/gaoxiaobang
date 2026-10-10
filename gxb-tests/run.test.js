@@ -8,7 +8,7 @@ const path = require('path');
 const SCRIPT = fs.readFileSync(path.join(__dirname, '..', 'gxb-helper.user.js'), 'utf8');
 const HEADER = /\/\/ ==UserScript==[\s\S]*?\/\/ ==\/UserScript==\n/;
 const flush = (ms = 30) => new Promise(r => setTimeout(r, ms)); // real timer, lets stubbed-immediate timers + microtasks settle
-const scopedKey = (base, classId = 10001, userId = 'anonymous', host = 'xmut.class.gaoxiaobang.com') =>
+const scopedKey = (base, classId = 10001, userId = 'anonymous', host = 'fixture.class.gaoxiaobang.com') =>
     `${base}:${host}:${classId}:${userId}`;
 const stateOf = (store, classId = 10001, userId = 'anonymous', host) => store[scopedKey('gb_auto_step', classId, userId, host)];
 const processedOf = (store, classId = 10001, userId = 'anonymous') => {
@@ -24,7 +24,7 @@ const assert = (cond, msg) => {
 };
 
 function boot({ html = '', pageGlobals = {}, gmStore = {}, deepseekReply = 'B', apiResponder = null,
-    ajaxResponder = null, url = 'https://xmut.class.gaoxiaobang.com/class/10001/unit', referrer = '', onReady = null,
+    ajaxResponder = null, url = 'https://fixture.class.gaoxiaobang.com/class/10001/unit', referrer = '', onReady = null,
     autoStart = true, enabledModules = ['progress', 'discussion', 'ai'], sessionRecord } = {}) {
     const dom = new JSDOM(`<html><body>${html}</body></html>`, {
         url,
@@ -485,7 +485,7 @@ const selectedIds = ({ window }) => [...window.document.querySelectorAll('i[answ
     {
         const seeded = { [scopedKey('gb_auto_step', 10001, 'u1')]: 'completed', gb_auto_step: 'completed', gb_processed_topics: '["101"]' };
         const course = classId => ({ classinfo: { classId }, unitList: [{ contentType: 'Page', chapterId: 101 }], gxb: { user: { _: { currentUser: { userId: 'u1' } } } } });
-        const anotherCourse = boot({ url: 'https://xmut.class.gaoxiaobang.com/class/10002/unit', pageGlobals: course(10002), gmStore: seeded });
+        const anotherCourse = boot({ url: 'https://fixture.class.gaoxiaobang.com/class/10002/unit', pageGlobals: course(10002), gmStore: seeded });
         await flush();
         assert(anotherCourse.fx.ajaxCalls.length === 1, 'completion from one course does not suppress another course with the same chapter ID');
         assert(stateOf(anotherCourse.store, 10002, 'u1') === 'completed', 'new course writes its own scoped completion');
@@ -524,7 +524,7 @@ const selectedIds = ({ window }) => [...window.document.querySelectorAll('i[answ
             html: '<a content_type="Quiz" chapter_id="104" href="/class/10001/chapter/104/quiz">First quiz</a><a content_type="Quiz" chapter_id="105" href="/class/10001/chapter/105/quiz">Second quiz</a>',
         });
         await flush();
-        assert(JSON.stringify(fixture.fx.navigations) === '["https://xmut.class.gaoxiaobang.com/class/10001/chapter/104/quiz"]', 'successful course work opens the first unfinished quiz using its real task link');
+        assert(JSON.stringify(fixture.fx.navigations) === '["https://fixture.class.gaoxiaobang.com/class/10001/chapter/104/quiz"]', 'successful course work opens the first unfinished quiz using its real task link');
     }
     {
         const fixture = boot({
@@ -534,7 +534,7 @@ const selectedIds = ({ window }) => [...window.document.querySelectorAll('i[answ
             html: '<a content_type="Quiz" chapter_id="104" href="/class/10001/chapter/104/quiz">Already done</a>',
         });
         await flush();
-        assert(fixture.fx.navigations[0] === 'https://xmut.class.gaoxiaobang.com/class/10001/chapter/105/quiz', 'next task skips previously completed quizzes and uses a chapter-provided href');
+        assert(fixture.fx.navigations[0] === 'https://fixture.class.gaoxiaobang.com/class/10001/chapter/105/quiz', 'next task skips previously completed quizzes and uses a chapter-provided href');
     }
     {
         const fixture = boot({
@@ -570,7 +570,7 @@ const selectedIds = ({ window }) => [...window.document.querySelectorAll('i[answ
             });
         } });
         await flush();
-        assert(fixture.fx.navigations[0] === 'https://xmut.class.gaoxiaobang.com/class/10001/chapter/101/quiz', 'a visible quiz result opens the next unfinished task');
+        assert(fixture.fx.navigations[0] === 'https://fixture.class.gaoxiaobang.com/class/10001/chapter/101/quiz', 'a visible quiz result opens the next unfinished task');
         assert(JSON.parse(fixture.store[scopedKey('gb_processed_quizzes')] || '[]').includes('100'), 'verified quiz completion persists the current chapter ID');
     }
     {
@@ -619,7 +619,7 @@ const selectedIds = ({ window }) => [...window.document.querySelectorAll('i[answ
         fixture.window.document.getElementById('quizSubmit').click();
         fixture.window.document.body.setAttribute('data-quiz-submitted', 'true');
         await flush();
-        assert(fixture.fx.navigations[0] === 'https://xmut.class.gaoxiaobang.com/class/10001/chapter/101/quiz', 'the watcher advances when the user later submits and completion appears');
+        assert(fixture.fx.navigations[0] === 'https://fixture.class.gaoxiaobang.com/class/10001/chapter/101/quiz', 'the watcher advances when the user later submits and completion appears');
     }
     {
         const fixture = boot({
@@ -627,7 +627,7 @@ const selectedIds = ({ window }) => [...window.document.querySelectorAll('i[answ
             html: '<a content_type="Quiz" chapter_id="105" href="/class/10001/chapter/105/quiz">Later task first in DOM</a><a content_type="Quiz" chapter_id="104" href="/class/10001/chapter/104/quiz">Earlier curriculum task</a>',
         });
         await flush();
-        assert(fixture.fx.navigations[0] === 'https://xmut.class.gaoxiaobang.com/class/10001/chapter/104/quiz', 'curriculum order wins over reversed DOM task ordering');
+        assert(fixture.fx.navigations[0] === 'https://fixture.class.gaoxiaobang.com/class/10001/chapter/104/quiz', 'curriculum order wins over reversed DOM task ordering');
     }
     {
         let nextClicks = 0;
@@ -690,7 +690,7 @@ const selectedIds = ({ window }) => [...window.document.querySelectorAll('i[answ
     {
         let injected = false;
         const fixture = boot({
-            url: 'https://xmut.class.gaoxiaobang.com/class/10001/chapter/100/quiz',
+            url: 'https://fixture.class.gaoxiaobang.com/class/10001/chapter/100/quiz',
             pageGlobals: { classinfo: { classId: 10001 }, unitList: [{ contentType: 'Video', chapterId: 99 }, { contentType: 'Quiz', chapterId: 100 }, { contentType: 'Quiz', chapterId: 101, href: '/class/10001/chapter/101/quiz' }] },
             gmStore: { gb_deepseek_key: 'sk-fixture', gb_quiz_confirm: 'on' }, deepseekReply: 'A',
             onReady(window) {
@@ -730,7 +730,7 @@ const selectedIds = ({ window }) => [...window.document.querySelectorAll('i[answ
     }
     {
         const fixture = boot({
-            url: 'https://xmut.class.gaoxiaobang.com/class/10001/chapter/100/quiz',
+            url: 'https://fixture.class.gaoxiaobang.com/class/10001/chapter/100/quiz',
             pageGlobals: quizCourse,
             html: '<button class="quiz-join" chapter_id="100">进入测验</button>',
             onReady(window) {
@@ -740,14 +740,14 @@ const selectedIds = ({ window }) => [...window.document.querySelectorAll('i[answ
             },
         });
         await flush();
-        assert(fixture.fx.navigations.length === 1 && fixture.fx.navigations[0] === 'https://xmut.class.gaoxiaobang.com/class/10001/chapter/101/quiz', 'quiz entry that opens a completed result advances exactly once');
+        assert(fixture.fx.navigations.length === 1 && fixture.fx.navigations[0] === 'https://fixture.class.gaoxiaobang.com/class/10001/chapter/101/quiz', 'quiz entry that opens a completed result advances exactly once');
         assert(fixture.fx.deepseekReqs.length === 0, 'an existing completed result after quiz entry makes no AI requests');
     }
 
     console.log('\n── Regressions: same-document chapterId hash routing ──');
     {
         const fixture = boot({
-            url: 'https://xmut.class.gaoxiaobang.com/class/10001/chapter/100/quiz',
+            url: 'https://fixture.class.gaoxiaobang.com/class/10001/chapter/100/quiz',
             pageGlobals: { classinfo: { classId: 10001 }, unitList: [{ contentType: 'Quiz', chapterId: 100 }, { contentType: 'Quiz', chapterId: 101 }] },
             gmStore: { [scopedKey('gb_auto_step')]: 'completed', [scopedKey('gb_processed_quizzes')]: '["100"]' },
         });
@@ -756,21 +756,21 @@ const selectedIds = ({ window }) => [...window.document.querySelectorAll('i[answ
         fixture.window.document.body.insertAdjacentHTML('beforeend', '<a content_type="Quiz" chapter_id="101" href="/class/10001/chapter/101/quiz">Now loaded next quiz</a>');
         fixture.fx.menus.find(menu => /重试当前页面/.test(menu.name)).callback();
         await flush();
-        assert(fixture.fx.navigations.length === 1 && fixture.fx.navigations[0] === 'https://xmut.class.gaoxiaobang.com/class/10001/chapter/101/quiz', 'retry menu resumes completed quiz navigation after its next-task link loads');
+        assert(fixture.fx.navigations.length === 1 && fixture.fx.navigations[0] === 'https://fixture.class.gaoxiaobang.com/class/10001/chapter/101/quiz', 'retry menu resumes completed quiz navigation after its next-task link loads');
     }
     {
         const fixture = boot({
-            url: 'https://xmut.class.gaoxiaobang.com/class/10001/unit#/learn?chapterId=100&unitId=1',
+            url: 'https://fixture.class.gaoxiaobang.com/class/10001/unit#/learn?chapterId=100&unitId=1',
             pageGlobals: { classinfo: { classId: 10001 }, unitList: [{ contentType: 'Quiz', chapterId: 100 }, { contentType: 'Quiz', chapterId: 101 }] },
             gmStore: { [scopedKey('gb_auto_step')]: 'completed', [scopedKey('gb_processed_quizzes')]: '["100"]' },
         });
         await flush();
-        assert(fixture.fx.navigations[0] === 'https://xmut.class.gaoxiaobang.com/class/10001/unit#/learn?chapterId=101&unitId=1', 'completed current quiz resumes via the existing chapterId hash route and preserves other route parameters');
+        assert(fixture.fx.navigations[0] === 'https://fixture.class.gaoxiaobang.com/class/10001/unit#/learn?chapterId=101&unitId=1', 'completed current quiz resumes via the existing chapterId hash route and preserves other route parameters');
         assert(fixture.fx.deepseekReqs.length === 0, 'persisted current quiz completion is resumed without answering again');
     }
     {
         const fixture = quizFixture({
-            url: 'https://xmut.class.gaoxiaobang.com/class/10001/unit#chapterId=100',
+            url: 'https://fixture.class.gaoxiaobang.com/class/10001/unit#chapterId=100',
             pageGlobals: { classinfo: { classId: 10001 }, unitList: [{ contentType: 'Quiz', chapterId: 100 }, { contentType: 'Quiz', chapterId: 101 }] },
             deepseekReply: 'A',
             onReady(window) {
@@ -796,7 +796,7 @@ const selectedIds = ({ window }) => [...window.document.querySelectorAll('i[answ
         let pendingReply;
         const clicks = [];
         const fixture = quizFixture({
-            url: 'https://xmut.class.gaoxiaobang.com/class/10001/unit#chapterId=100',
+            url: 'https://fixture.class.gaoxiaobang.com/class/10001/unit#chapterId=100',
             pageGlobals: { classinfo: { classId: 10001 }, unitList: [{ contentType: 'Quiz', chapterId: 100 }, { contentType: 'Quiz', chapterId: 101 }] },
             apiResponder: (opts, n) => {
                 if (n === 1) pendingReply = opts;
@@ -825,7 +825,7 @@ const selectedIds = ({ window }) => [...window.document.querySelectorAll('i[answ
     {
         let entered = 0;
         const fixture = boot({
-            url: 'https://xmut.class.gaoxiaobang.com/class/10001/unit#chapterId=100',
+            url: 'https://fixture.class.gaoxiaobang.com/class/10001/unit#chapterId=100',
             pageGlobals: { classinfo: { classId: 10001 }, unitList: [{ contentType: 'Quiz', chapterId: 100 }, { contentType: 'Quiz', chapterId: 101 }] },
             gmStore: { [scopedKey('gb_auto_step')]: 'completed', [scopedKey('gb_processed_quizzes')]: '["100"]', gb_deepseek_key: 'sk-fixture', gb_quiz_confirm: 'on' },
             deepseekReply: 'A',
@@ -847,7 +847,7 @@ const selectedIds = ({ window }) => [...window.document.querySelectorAll('i[answ
     }
     {
         const fixture = quizFixture({
-            url: 'https://xmut.class.gaoxiaobang.com/class/10001/unit#chapterId=100',
+            url: 'https://fixture.class.gaoxiaobang.com/class/10001/unit#chapterId=100',
             pageGlobals: { classinfo: { classId: 10001 }, unitList: [{ contentType: 'Quiz', chapterId: 100 }, { contentType: 'Quiz', chapterId: 101 }, { contentType: 'Quiz', chapterId: 102 }] },
             deepseekReply: 'A',
             onReady(window) {
@@ -876,7 +876,7 @@ const selectedIds = ({ window }) => [...window.document.querySelectorAll('i[answ
     }
     {
         const fixture = quizFixture({
-            url: 'https://xmut.class.gaoxiaobang.com/class/10001/unit#chapterId=100',
+            url: 'https://fixture.class.gaoxiaobang.com/class/10001/unit#chapterId=100',
             pageGlobals: { classinfo: { classId: 10001 }, unitList: [{ contentType: 'Quiz', chapterId: 100 }, { contentType: 'Page', chapterId: 101 }] },
             deepseekReply: 'A', gmStore: { gb_quiz_confirm: 'on' },
         });
@@ -919,8 +919,8 @@ const selectedIds = ({ window }) => [...window.document.querySelectorAll('i[answ
     }
 
     console.log('\n── Regressions: actual standalone quiz routes and option schema ──');
-    const courseReferrer = 'https://xmut.class.gaoxiaobang.com/class/10001/unit/40001/chapter/30003';
-    const quizUrl = 'https://xmut.class.gaoxiaobang.com/class/10001/quiz/20003';
+    const courseReferrer = 'https://fixture.class.gaoxiaobang.com/class/10001/unit/40001/chapter/30003';
+    const quizUrl = 'https://fixture.class.gaoxiaobang.com/class/10001/quiz/20003';
     const quizRouteKey = scopedKey('gb_quiz_return_route');
     const storedReturnRoute = store => {
         const value = store[quizRouteKey];
@@ -944,7 +944,7 @@ const selectedIds = ({ window }) => [...window.document.querySelectorAll('i[answ
         assert(!fixture.store[scopedKey('gb_processed_quizzes')], 'returning to a referrer does not falsely complete the referrer chapter');
     }
     for (const [name, referrer] of [
-        ['different course', 'https://xmut.class.gaoxiaobang.com/class/99999/unit/40001/chapter/30003'],
+        ['different course', 'https://fixture.class.gaoxiaobang.com/class/99999/unit/40001/chapter/30003'],
         ['different school host', 'https://other.class.gaoxiaobang.com/class/10001/unit/40001/chapter/30003'],
     ]) {
         const fixture = quizFixture({ url: quizUrl, referrer, pageGlobals: { quizInfo: { quizId: '20003', contextId: '10001', status: '30' } }, gmStore: { gb_quiz_confirm: 'on' } });
@@ -981,7 +981,7 @@ const selectedIds = ({ window }) => [...window.document.querySelectorAll('i[answ
             gmStore: { [scopedKey('gb_auto_step')]: 'completed', [scopedKey('gb_processed_quiz_ids')]: '["20003"]' },
         });
         await flush();
-        assert(fixture.fx.navigations[0] === 'https://xmut.class.gaoxiaobang.com/class/10001/quiz/20004', 'course navigation maps completed standalone quiz IDs to chapter.quiz.quizId and skips the finished quiz');
+        assert(fixture.fx.navigations[0] === 'https://fixture.class.gaoxiaobang.com/class/10001/quiz/20004', 'course navigation maps completed standalone quiz IDs to chapter.quiz.quizId and skips the finished quiz');
     }
     {
         const fixture = quizFixture({
@@ -1002,7 +1002,7 @@ const selectedIds = ({ window }) => [...window.document.querySelectorAll('i[answ
             ] },
         });
         await flush();
-        assert(fixture.fx.navigations[0] === 'https://xmut.class.gaoxiaobang.com/class/10001/unit/40002/chapter/30004', 'nested quiz inherits its actual unit ID when reusing the observed course unit/chapter route');
+        assert(fixture.fx.navigations[0] === 'https://fixture.class.gaoxiaobang.com/class/10001/unit/40002/chapter/30004', 'nested quiz inherits its actual unit ID when reusing the observed course unit/chapter route');
     }
     {
         const fixture = boot({ url: courseReferrer,
@@ -1036,7 +1036,7 @@ const selectedIds = ({ window }) => [...window.document.querySelectorAll('i[answ
         await flush();
         assert(entryClicks === 0 && fixture.fx.deepseekReqs.length === 0, `${source}: a returned completed quiz never opens entry or asks AI again`);
         assert(JSON.parse(fixture.store[scopedKey('gb_processed_quizzes')] || '[]').includes('30003'), `${source}: completion reconciles to the actual current chapter ID`);
-        assert(fixture.fx.navigations[0] === 'https://xmut.class.gaoxiaobang.com/class/10001/unit/40002/chapter/30004', `${source}: course continuation opens the next unfinished quiz`);
+        assert(fixture.fx.navigations[0] === 'https://fixture.class.gaoxiaobang.com/class/10001/unit/40002/chapter/30004', `${source}: course continuation opens the next unfinished quiz`);
     }
     for (const [name, attributes] of [
         ['different context', 'chapter_id="30003" context_id="99999"'],
@@ -1105,7 +1105,7 @@ const selectedIds = ({ window }) => [...window.document.querySelectorAll('i[answ
     }
 
     console.log('\n── Regressions: server history link for quizzes completed before local records ──');
-    const historyCourseUrl = 'https://xmut.class.gaoxiaobang.com/class/10001/unit/40001/chapter/30001';
+    const historyCourseUrl = 'https://fixture.class.gaoxiaobang.com/class/10001/unit/40001/chapter/30001';
     const historyGlobals = (contentType = 'Quiz', quizId = '20001') => ({ classinfo: { classId: 10001 }, unitList: [
         { unitId: 40001, itemList: [{ contentType, chapterId: 30001, quiz: { quizId } }] },
         { unitId: 40002, itemList: [{ contentType: 'Quiz', chapterId: 30002, quiz: { quizId: '20002' } }] },
@@ -1123,7 +1123,7 @@ const selectedIds = ({ window }) => [...window.document.querySelectorAll('i[answ
         await flush();
         assert(completedQuizIds(fixture.store).includes('20001') && JSON.parse(fixture.store[scopedKey('gb_processed_quizzes')] || '[]').includes('30001'), 'the exact server history link records its real quiz ID and current chapter without prior local completion');
         assert(entryClicks === 0 && historyClicks === 0 && fixture.fx.deepseekReqs.length === 0, 'server history after a visible entry button takes precedence without reopening entry/history or asking AI');
-        assert(fixture.fx.navigations[0] === 'https://xmut.class.gaoxiaobang.com/class/10001/unit/40002/chapter/30002', 'a historically completed quiz advances to the next unfinished course quiz');
+        assert(fixture.fx.navigations[0] === 'https://fixture.class.gaoxiaobang.com/class/10001/unit/40002/chapter/30002', 'a historically completed quiz advances to the next unfinished course quiz');
     }
     for (const [name, config] of [
         ['blank history ID', { submissionId: '' }],
@@ -1150,7 +1150,7 @@ const selectedIds = ({ window }) => [...window.document.querySelectorAll('i[answ
     const staleHistoryHtml = '<div class="chapter-content"><a class="quiz-view" href="javascript:void(0)" quiz_submission_id="50004" context_id="10001" quiz_id="20003">Old completed quiz history without a chapter attribute</a></div>';
     {
         const fixture = boot({
-            url: 'https://xmut.class.gaoxiaobang.com/class/10001/unit#chapterId=100',
+            url: 'https://fixture.class.gaoxiaobang.com/class/10001/unit#chapterId=100',
             pageGlobals: staleHistoryGlobals, html: staleHistoryHtml,
             gmStore: { [scopedKey('gb_auto_step')]: 'completed' },
         });
@@ -1162,7 +1162,7 @@ const selectedIds = ({ window }) => [...window.document.querySelectorAll('i[answ
     }
     {
         const fixture = boot({
-            url: 'https://xmut.class.gaoxiaobang.com/class/10001/unit#chapterId=100',
+            url: 'https://fixture.class.gaoxiaobang.com/class/10001/unit#chapterId=100',
             pageGlobals: staleHistoryGlobals, html: staleHistoryHtml, deepseekReply: 'A',
             gmStore: { [scopedKey('gb_auto_step')]: 'completed', gb_deepseek_key: 'sk-fixture', gb_quiz_confirm: 'on' },
             onReady(window) {
@@ -1185,7 +1185,7 @@ const selectedIds = ({ window }) => [...window.document.querySelectorAll('i[answ
     console.log('\n── Regressions: URL course identity and SPA course reload ──');
     {
         const fixture = boot({
-            url: 'https://xmut.class.gaoxiaobang.com/class/10003/unit/40003/chapter/30011',
+            url: 'https://fixture.class.gaoxiaobang.com/class/10003/unit/40003/chapter/30011',
             pageGlobals: { classinfo: { classId: 10001 }, unitList: [{ contentType: 'Video', chapterId: 101 }] },
             gmStore: { [scopedKey('gb_auto_step', 10001)]: 'progress' },
         });
@@ -1201,7 +1201,7 @@ const selectedIds = ({ window }) => [...window.document.querySelectorAll('i[answ
             ajaxResponder: opts => { pending = opts; },
         });
         await flush();
-        fixture.changeUrl('https://xmut.class.gaoxiaobang.com/class/10003/unit/40003/chapter/30011', eventType);
+        fixture.changeUrl('https://fixture.class.gaoxiaobang.com/class/10003/unit/40003/chapter/30011', eventType);
         fixture.fx.intervals.forEach(callback => callback());
         fixture.window.dispatchEvent(new fixture.window.Event('popstate'));
         fixture.fx.intervals.forEach(callback => callback());
@@ -1213,7 +1213,7 @@ const selectedIds = ({ window }) => [...window.document.querySelectorAll('i[answ
     }
 
     console.log('\n── Regressions: written assignment handoff ──');
-    const assignmentCourseUrl = 'https://xmut.class.gaoxiaobang.com/class/10003/unit/40003/chapter/30011';
+    const assignmentCourseUrl = 'https://fixture.class.gaoxiaobang.com/class/10003/unit/40003/chapter/30011';
     const assignmentGlobals = { classinfo: { classId: 10003 }, unitList: [
         { contentType: 'Video', chapterId: 30011 }, { contentType: 'Assignment', chapterId: 30012 },
     ] };
@@ -1236,7 +1236,7 @@ const selectedIds = ({ window }) => [...window.document.querySelectorAll('i[answ
             html: '<a content_type="Assignment" chapter_id="30012" href="/class/10003/unit/40003/chapter/30012">Written assignment</a>',
         });
         await flush();
-        assert(fixture.fx.navigations[0] === 'https://xmut.class.gaoxiaobang.com/class/10003/unit/40003/chapter/30012', 'completed known quizzes hand off to the valid assignment task link');
+        assert(fixture.fx.navigations[0] === 'https://fixture.class.gaoxiaobang.com/class/10003/unit/40003/chapter/30012', 'completed known quizzes hand off to the valid assignment task link');
     }
     for (const [name, linkHtml] of [
         ['locked flag', '<a content_type="Assignment" chapter_id="30012" href="javascript:void(0)" isunlock="false">Locked assignment</a>'],
@@ -1260,7 +1260,7 @@ const selectedIds = ({ window }) => [...window.document.querySelectorAll('i[answ
     {
         let submissions = 0, catalogClicks = 0;
         const fixture = boot({
-            url: 'https://xmut.class.gaoxiaobang.com/class/10003/unit/40003/chapter/30012',
+            url: 'https://fixture.class.gaoxiaobang.com/class/10003/unit/40003/chapter/30012',
             pageGlobals: { ...assignmentGlobals, questionList: [{ title: 'Stale quiz globals', answerList: [{ answerId: 'a1', text: 'old answer' }] }] },
             gmStore: { gb_deepseek_key: 'sk-fixture', gb_quiz_confirm: 'off', [scopedKey('gb_auto_step', 10003)]: 'completed' },
             html: '<textarea id="assignmentDraft">My unfinished written assignment</textarea><button id="assignmentSubmit">Submit assignment</button><button id="quizSubmit">Stale quiz submit</button><a content_type="Assignment" chapter_id="30012" href="javascript:void(0)">Current assignment</a>',
@@ -1355,7 +1355,7 @@ const selectedIds = ({ window }) => [...window.document.querySelectorAll('i[answ
         clickControl(fixture, 'gxb-start');
         await flush();
         const saved = JSON.parse(controlSession(fixture));
-        assert(saved.host === 'xmut.class.gaoxiaobang.com' && saved.course === '10001' && saved.user === 'u1' && fixture.fx.ajaxCalls.length === 1, 'explicit Start grants this tab its exact host/course/account session and runs enabled progress');
+        assert(saved.host === 'fixture.class.gaoxiaobang.com' && saved.course === '10001' && saved.user === 'u1' && fixture.fx.ajaxCalls.length === 1, 'explicit Start grants this tab its exact host/course/account session and runs enabled progress');
     }
     {
         const fixture = quizFixture({ autoStart: false, enabledModules: [], pageGlobals: quizCourse });
@@ -1391,7 +1391,7 @@ const selectedIds = ({ window }) => [...window.document.querySelectorAll('i[answ
     }
     {
         let joins = 0;
-        const fixture = boot({ enabledModules: ['progress'], url: 'https://xmut.class.gaoxiaobang.com/class/10001/unit#chapterId=100',
+        const fixture = boot({ enabledModules: ['progress'], url: 'https://fixture.class.gaoxiaobang.com/class/10001/unit#chapterId=100',
             pageGlobals: { classinfo: { classId: 10001 }, unitList: [{ contentType: 'Quiz', chapterId: 100 }] },
             html: '<button class="quiz-join" chapter_id="100">Enter</button>',
             onReady(window) { window.document.querySelector('.quiz-join').addEventListener('click', () => joins++); },
@@ -1400,7 +1400,7 @@ const selectedIds = ({ window }) => [...window.document.querySelectorAll('i[answ
         assert(joins === 0 && fixture.fx.deepseekReqs.length === 0, 'AI disabled never opens the quiz entry automatically');
     }
     {
-        const fixture = quizFixture({ enabledModules: ['progress'], url: 'https://xmut.class.gaoxiaobang.com/class/10001/unit#chapterId=100',
+        const fixture = quizFixture({ enabledModules: ['progress'], url: 'https://fixture.class.gaoxiaobang.com/class/10001/unit#chapterId=100',
             pageGlobals: { classinfo: { classId: 10001 }, unitList: [{ contentType: 'Page', chapterId: 99 }, { contentType: 'Quiz', chapterId: 100 }] },
         });
         await flush();
@@ -1498,8 +1498,8 @@ const selectedIds = ({ window }) => [...window.document.querySelectorAll('i[answ
         assert(!!pending && reloaded.fx.ajaxCalls.length === 1 && !!controlSession(reloaded), 'same-tab reload with matching host/course/account resumes its enabled module');
     }
     for (const [name, record] of [
-        ['different course', { host: 'xmut.class.gaoxiaobang.com', course: '10002', user: 'u1', modules: ['progress'] }],
-        ['different user', { host: 'xmut.class.gaoxiaobang.com', course: '10001', user: 'u2', modules: ['progress'] }],
+        ['different course', { host: 'fixture.class.gaoxiaobang.com', course: '10002', user: 'u1', modules: ['progress'] }],
+        ['different user', { host: 'fixture.class.gaoxiaobang.com', course: '10001', user: 'u2', modules: ['progress'] }],
         ['different host', { host: 'other.class.gaoxiaobang.com', course: '10001', user: 'u1', modules: ['progress'] }],
     ]) {
         const fixture = boot({ autoStart: false, enabledModules: ['progress'], pageGlobals: moduleCourse, sessionRecord: record });
@@ -1523,7 +1523,7 @@ const selectedIds = ({ window }) => [...window.document.querySelectorAll('i[answ
     {
         let initialized = false, requestBeforeUser = false;
         const fixture = boot({ autoStart: false, enabledModules: ['progress'],
-            sessionRecord: { host: 'xmut.class.gaoxiaobang.com', course: '10001', user: 'u1', modules: ['progress'] },
+            sessionRecord: { host: 'fixture.class.gaoxiaobang.com', course: '10001', user: 'u1', modules: ['progress'] },
             pageGlobals: { classinfo: { classId: 10001 }, unitList: [{ contentType: 'Page', chapterId: 101 }] },
             ajaxResponder: opts => { if (!initialized) requestBeforeUser = true; opts.success('{}'); },
             onReady(window) {
@@ -1613,7 +1613,7 @@ const selectedIds = ({ window }) => [...window.document.querySelectorAll('i[answ
     {
         let pending, initialized = false;
         const fixture = boot({ autoStart: false, enabledModules: ['ai'],
-            sessionRecord: { host: 'xmut.class.gaoxiaobang.com', course: '10001', user: 'u1', modules: ['ai'] },
+            sessionRecord: { host: 'fixture.class.gaoxiaobang.com', course: '10001', user: 'u1', modules: ['ai'] },
             pageGlobals: { questionList: [{ title: 'Late user quiz', answerList: [{ answerId: 'a1', text: 'one' }] }] },
             gmStore: { gb_deepseek_key: 'sk-fixture' }, html: '<i class="gxb-icon-radio" answer_id="a1"></i><button id="quizSubmit">Submit</button>',
             apiResponder: opts => { pending = opts; },
@@ -1669,7 +1669,7 @@ const selectedIds = ({ window }) => [...window.document.querySelectorAll('i[answ
         ['missing snapshot', undefined], ['empty snapshot', []], ['duplicate snapshot', ['progress', 'progress']],
         ['unknown module snapshot', ['unrecognized']], ['snapshot differs from preferences', ['ai']],
     ]) {
-        const sessionRecord = { host: 'xmut.class.gaoxiaobang.com', course: '10001', user: 'u1' };
+        const sessionRecord = { host: 'fixture.class.gaoxiaobang.com', course: '10001', user: 'u1' };
         if (modules !== undefined) sessionRecord.modules = modules;
         const fixture = boot({ autoStart: false, enabledModules: ['progress'], pageGlobals: moduleCourse, sessionRecord });
         await flush();

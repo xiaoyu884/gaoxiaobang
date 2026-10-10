@@ -7,8 +7,6 @@
 // @author       combined from Wu557666/gaoxiaobang + Tyrone2333/Gaoxiaobang-Script
 // @homepageURL  https://github.com/xiaoyu884/i-dont-wanna-take-gaoxiaobang
 // @supportURL   https://github.com/xiaoyu884/i-dont-wanna-take-gaoxiaobang/issues
-// @icon         https://favicon.im/xmut.gaoxiaobang.com?size=128
-// @match        https://xmut.class.gaoxiaobang.com/*
 // @match        https://*.class.gaoxiaobang.com/*
 // @grant        GM_setValue
 // @grant        GM_getValue
